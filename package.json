@@ -11,9 +11,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "tg": "node index-6-tg.js",
-    "feishu": "node index-7-feishu.js",
-    "start": "node index-7-feishu.js"
+    "tg": "node telegram.js",
+    "feishu": "node feishu.js",
+    "start": "node feishu.js"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.40.0",

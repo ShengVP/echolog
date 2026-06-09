@@ -24,8 +24,8 @@
 - 「（视觉模型直接走...）」这种纯说明文本视为空 SYSTEM，自动跳过 system message
 
 ### bot 主进程 callers 改造
-- `index-7-feishu.js` 视觉解析 prompt → 走 loadPromptPair('vision_describe')
-- `index-7-feishu.js` 周报 prompt → 走 loadPromptPair('weekly', undefined, { CORPUS })
+- `feishu.js` 视觉解析 prompt → 走 loadPromptPair('vision_describe')
+- `feishu.js` 周报 prompt → 走 loadPromptPair('weekly', undefined, { CORPUS })
 - `lib/drafts.js` SHARED_VOICE/TWITTER/LONGFORM/VIDEO 全删 → loadDraftPrompt(format)
 - `lib/self-review.js` SINGLE_DAY_PROMPT/ADVICE_PROMPT 全删 → loadPromptPair
 

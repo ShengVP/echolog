@@ -23,18 +23,18 @@ while [[ -L "$SCRIPT_PATH" ]]; do
 done
 PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 
-if [[ ! -f "$PROJECT_DIR/index-7-feishu.js" ]]; then
+if [[ ! -f "$PROJECT_DIR/feishu.js" ]]; then
   echo "❌ 找不到项目入口文件，PROJECT_DIR=$PROJECT_DIR"
   exit 1
 fi
 
 CHANNEL="feishu"
-ENTRY="index-7-feishu.js"
+ENTRY="feishu.js"
 
 # 第一个参数若是 'tg'，切换到 telegram 通道
 if [[ "${1:-}" == "tg" ]]; then
   CHANNEL="tg"
-  ENTRY="index-6-tg.js"
+  ENTRY="telegram.js"
   shift
 fi
 

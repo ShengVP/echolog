@@ -29,7 +29,7 @@ jobs:
       # 入口文件 + 所有 lib 模块都过一遍 `node --check`（纯语法/解析校验）
       - name: Syntax check
         run: |
-          for f in index-6-tg.js index-7-feishu.js lib/*.js; do
+          for f in telegram.js feishu.js lib/*.js; do
             [ -f "$f" ] || continue
             echo "▶ node --check $f"
             node --check "$f"

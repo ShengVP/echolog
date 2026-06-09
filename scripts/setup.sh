@@ -24,7 +24,7 @@ npm install --no-audit --no-fund
 # 3. 全局命令 echolog（用户级 node 前缀无需 sudo；失败不致命）
 echo "→ npm link（装全局 echolog 命令）..."
 if npm link >/dev/null 2>&1; then
-  echo "✅ 已装 echolog 命令（也可直接 npm run feishu / node index-7-feishu.js）"
+  echo "✅ 已装 echolog 命令（也可直接 npm run feishu / node feishu.js）"
 else
   echo "⚠️  npm link 没成功（权限？）。不影响使用，直接用：npm run feishu"
 fi

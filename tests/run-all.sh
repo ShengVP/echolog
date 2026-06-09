@@ -12,7 +12,7 @@ done
 
 echo ""
 echo "━━━ syntax check 所有 lib + index ━━━"
-for f in "$ROOT"/lib/*.js "$ROOT"/index-6-tg.js "$ROOT"/index-7-feishu.js; do
+for f in "$ROOT"/lib/*.js "$ROOT"/telegram.js "$ROOT"/feishu.js; do
   [ -f "$f" ] || continue
   node --check "$f" && echo "  ✓ $(basename "$f")"
 done

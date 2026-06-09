@@ -10,7 +10,7 @@ require('dotenv').config({ path: require('./lib/paths').ENV_FILE });
 //   - 即使代理健康也多一跳，增加延迟 + 失败率
 //
 // 解决：飞书通道启动时主动清掉这些 env。安全性论证：
-//   - TG 通道走自己的 HttpsProxyAgent（index-6-tg.js 显式构造），不读 env ✓
+//   - TG 通道走自己的 HttpsProxyAgent（telegram.js 显式构造），不读 env ✓
 //   - Ollama / 云端 LLM 走 lib/llm.js 的 undici 直接 dispatcher，不读 env ✓
 //   - whisper-cli / ffmpeg 是本地子进程，跟 proxy 无关 ✓
 //   - 飞书 API 域名国内可直连，根本不需要代理 ✓
