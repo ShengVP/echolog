@@ -1,0 +1,10 @@
+{
+  "id": "echolog-ai",
+  "name": "echolog AI",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.0",
+  "description": "本地 Ollama 一键展开选题为长文/视频脚本/推特串。配合 echolog 项目使用。",
+  "author": "BillLucky",
+  "authorUrl": "https://github.com/BillLucky/echolog",
+  "isDesktopOnly": true
+}

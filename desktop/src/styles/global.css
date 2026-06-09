@@ -1,0 +1,89 @@
+@import 'highlight.js/styles/github-dark.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* macOS hiddenInset titlebar：标题栏区域留给红黄绿三按钮 */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+:root {
+  --app-base-font-size: 14px;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  font-size: var(--app-base-font-size);
+}
+
+html[data-font-size="small"] { font-size: 13px; }
+html[data-font-size="large"] { font-size: 16px; }
+
+/* 但内容区可选 */
+.selectable, .selectable * {
+  user-select: text;
+}
+
+/* 自定义滚动条，深色风 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.25);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.45);
+}
+
+/* 标题栏可拖拽区（macOS hiddenInset 红绿黄按钮区域）*/
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* prose 风样式 for markdown */
+.markdown-body h1 { @apply text-2xl font-bold mt-6 mb-3 text-zinc-50; }
+.markdown-body h2 { @apply text-xl font-bold mt-5 mb-3 text-zinc-50; }
+.markdown-body h3 { @apply text-lg font-semibold mt-4 mb-2 text-zinc-100; }
+.markdown-body h4 { @apply text-base font-semibold mt-3 mb-2 text-zinc-200; }
+.markdown-body p  { @apply my-2 leading-relaxed text-zinc-300; }
+.markdown-body ul { @apply list-disc pl-6 my-2 text-zinc-300; }
+.markdown-body ol { @apply list-decimal pl-6 my-2 text-zinc-300; }
+.markdown-body li { @apply my-0.5; }
+.markdown-body blockquote {
+  @apply border-l-4 border-zinc-700 pl-4 my-3 text-zinc-400 italic;
+}
+.markdown-body code:not(pre code) {
+  @apply bg-zinc-800 text-amber-300 px-1.5 py-0.5 rounded text-sm font-mono;
+}
+.markdown-body pre {
+  @apply bg-zinc-900 border border-zinc-800 rounded-lg p-4 my-3 overflow-x-auto text-sm;
+}
+.markdown-body pre code {
+  @apply bg-transparent text-zinc-200 p-0;
+}
+.markdown-body a {
+  @apply text-blue-400 hover:underline;
+}
+.markdown-body table {
+  @apply my-3 border-collapse;
+}
+.markdown-body th, .markdown-body td {
+  @apply border border-zinc-700 px-3 py-1.5;
+}
+.markdown-body th {
+  @apply bg-zinc-900 font-semibold text-zinc-200;
+}
+.markdown-body hr {
+  @apply border-zinc-800 my-4;
+}
+.markdown-body img {
+  @apply rounded-lg my-3 max-w-full;
+}

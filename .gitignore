@@ -1,0 +1,13 @@
+Daily_*
+.DS_Store
+
+node_modules/
+package-lock.json
+
+.env
+.env.*
+!.env.example
+.feishu_state.json
+.ticktick-state.json
+.diary_ratings.jsonl
+security_audit.log

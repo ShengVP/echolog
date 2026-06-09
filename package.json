@@ -1,0 +1,28 @@
+{
+  "name": "echolog",
+  "version": "1.0.0",
+  "description": "Local-first daily journaling bot — collect text/images/voice/video via Feishu (or Telegram), archive locally as Markdown, and synthesize structured, evidence-driven diaries via local Ollama or a cloud LLM (OpenAI-compatible / Anthropic).",
+  "license": "Apache-2.0",
+  "private": true,
+  "bin": {
+    "echolog": "./bin/echolog"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "tg": "node index-6-tg.js",
+    "feishu": "node index-7-feishu.js",
+    "start": "node index-7-feishu.js"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.40.0",
+    "dayjs": "^1.11.19",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.41.1",
+    "https-proxy-agent": "^7.0.6",
+    "node-fetch": "^2.7.0",
+    "ollama": "^0.6.3",
+    "undici": "^8.2.0"
+  }
+}

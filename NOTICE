@@ -1,0 +1,37 @@
+echolog
+Copyright 2026 echolog contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+------------------------------------------------------------------------------
+Third-party components and their separate licenses
+------------------------------------------------------------------------------
+
+Runtime dependencies (see package.json / package-lock.json for exact versions),
+each under its own license — typically MIT / Apache-2.0 / ISC:
+
+  @larksuiteoapi/node-sdk   Feishu / Lark open-platform SDK
+  grammy                    Telegram bot framework
+  ollama                    Local Ollama client
+  undici                    HTTP client (OpenAI- and Anthropic-compatible API calls)
+  node-fetch                HTTP client (media download / URL enrichment)
+  https-proxy-agent         Proxy support (Telegram channel)
+  dayjs                     Date / timezone handling
+  dotenv                    .env loading
+
+Desktop GUI (desktop/) additionally bundles, among others:
+  Electron, React, Vite, Monaco Editor, Tailwind CSS, electron-builder,
+  electron-updater, react-markdown, highlight.js, lucide-react — each under
+  its own license (MIT / Apache-2.0 / BSD).
+
+External tools invoked but NOT bundled (install separately):
+  Ollama          local LLM runtime — https://ollama.com
+  whisper.cpp     speech-to-text (ASR) — Apache/MIT, https://github.com/ggml-org/whisper.cpp
+  ffmpeg          audio/video transcoding — LGPL/GPL, https://ffmpeg.org
+
+LLM providers:
+  echolog can run fully local via Ollama, or call a cloud LLM you configure
+  (OpenAI-compatible endpoints, or Anthropic's Messages API). When you configure
+  a cloud provider, the content you send for diary/weekly generation is
+  transmitted to that provider under their terms. Local (Ollama) keeps everything
+  on your machine.

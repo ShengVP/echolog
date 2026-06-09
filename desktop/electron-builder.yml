@@ -1,0 +1,67 @@
+appId: com.echolog.desktop
+productName: echolog
+copyright: Copyright © 2026 echolog contributors
+asar: true
+asarUnpack:
+  - "node_modules/**/*.node"
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist
+  - dist-electron
+  - package.json
+
+# ============================================================================
+# 免费签名方案 (无需 Apple Developer ID, 不付费)
+# ----------------------------------------------------------------------------
+# identity: null  → 不做正式签名（也不付 $99/年）
+# 但保留 Hardened Runtime + entitlements 让 macOS 行为最规范：
+#   - 用户首次打开右键 → 打开，绕过 Gatekeeper
+#   - 之后再开就是双击即可
+# 如以后想付费分发，把 identity 改成 "Developer ID Application: Your Name (TEAMID)"
+# ============================================================================
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  identity: null
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSHumanReadableCopyright: "Copyright © 2026 echolog contributors"
+    LSMinimumSystemVersion: "10.15.0"
+
+dmg:
+  title: "${productName} ${version}"
+  iconSize: 100
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  # 自动生成 background.png（如有）会被采用；没有就用默认白底
+
+# ============================================================================
+# 在线更新（electron-updater 读这段；CI 自动推 latest-mac.yml 到 GitHub Releases）
+# ============================================================================
+publish:
+  provider: github
+  owner: BillLucky
+  repo: echolog
+  releaseType: release
+
+extraMetadata:
+  main: dist-electron/main.js

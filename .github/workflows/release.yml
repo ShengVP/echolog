@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: Tests
+        working-directory: desktop
+        run: npm test
+
+      - name: Build + package DMG
+        working-directory: desktop
+        env:
+          # 不签名（免费方案）—— 显式声明，避免 electron-builder 尝试签
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # GitHub Releases 上传 token
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run package:dmg
+
+      - name: Upload artifacts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/release/*.dmg
+            desktop/release/*.dmg.blockmap
+            desktop/release/latest-mac.yml
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
