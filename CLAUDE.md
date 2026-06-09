@@ -58,6 +58,12 @@ FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 不要把任何 secret 写回源码（`telegram.js` 早期版本写过，已迁移）。
 
+## 近期架构补充（开源化沉淀）
+
+- **`lib/paths.js` —— 统一可写路径（关键）**：`Daily_Vault` / `.feishu_state.json` / `.ticktick-state.json` / `.diary_ratings.jsonl` / `.env` / `prompts` 全部从 `lib/paths.js` 出。设 `ECHOLOG_DATA_DIR`（+ `ECHOLOG_PROMPTS_DIR`）可把数据整体重定位到任意可写目录（打包成 app / 多实例用）；不设则回退仓库根，行为完全不变、已部署实例零迁移。**新增任何可写路径一律走 paths.js，别再 `path.join(__dirname, ...)` 硬编码。**
+- **`lib/llm.js` —— 三 provider 抽象**：`LLM_PROVIDER` 选路 `ollama`（默认/本地）/ `openai`（OpenAI 兼容：DeepSeek/Moonshot/MiniMax/OpenRouter/自建 vLLM）/ `anthropic`（Claude 原生 Messages API：`x-api-key` 头、`system` 抽顶层、`max_tokens` 必填、思考默认关、Opus 4.7/4.8 自动不传 sampling）。Anthropic 无 embedding API → `/recall` 的 EMBEDDINGS 走 ollama/openai。调用方统一 `llm.chat()` / `llm.embed()`，返回 shape 跟 ollama-client 兼容。
+- **飞书 bot 菜单**：`handleBotMenu` 处理 `application.bot.menu_v6` —— 菜单项 `event_key`（纯命令名如 `diary`）映射成 `/命令` 复用 `tryDispatchCommand`，回信用 `state.paired_chat_id`（菜单事件不带 chat_id，故在收到配对用户 p2p 消息时顺手记下）。可粘贴的权限/事件/菜单配置模板见 `docs/FEISHU_SETUP.md`。
+
 ## 数据布局（每天一个目录）
 
 ```
