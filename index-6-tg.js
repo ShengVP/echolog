@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('./lib/paths').ENV_FILE });
 
 const { Bot } = require('grammy');
 const ollama = require('./lib/llm');
@@ -30,7 +30,7 @@ if (!TOKEN || !MY_TELEGRAM_ID) {
 
 const proxyAgent = new HttpsProxyAgent(PROXY_URL);
 
-const VAULT_DIR = path.join(__dirname, 'Daily_Vault');
+const { VAULT_DIR } = require('./lib/paths');
 const AUDIT_LOG = path.join(__dirname, 'security_audit.log');
 
 // const bot = new Bot(TOKEN);

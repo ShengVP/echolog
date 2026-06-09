@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('./lib/paths').ENV_FILE });
 
 // ============================================================================
 // ⚠️ 关键：unset 全局 proxy env，让飞书 SDK 的 axios 走直连
@@ -65,8 +65,7 @@ const WHISPER_BIN = '/opt/homebrew/bin/whisper-cli';
 const WHISPER_MODEL = path.join(process.env.HOME, '.whisper-models/ggml-large-v3-turbo-q5_0.bin');
 const FFMPEG_BIN = '/opt/homebrew/bin/ffmpeg';
 
-const VAULT_DIR = path.join(__dirname, 'Daily_Vault');
-const STATE_FILE = path.join(__dirname, '.feishu_state.json');
+const { VAULT_DIR, FEISHU_STATE_FILE: STATE_FILE } = require('./lib/paths');
 const FEISHU_BASE = 'https://open.feishu.cn';
 
 const client = new lark.Client({
