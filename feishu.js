@@ -61,9 +61,10 @@ if (!APP_ID || !APP_SECRET) {
 // LLM_TEXT_MODEL / LLM_VISION_MODEL 是 provider-agnostic 名字；OLLAMA_* 是历史变量名（向后兼容）
 const OLLAMA_TEXT_MODEL = process.env.LLM_TEXT_MODEL || process.env.OLLAMA_TEXT_MODEL || 'qwen3.5:9b';
 const OLLAMA_VISION_MODEL = process.env.LLM_VISION_MODEL || process.env.OLLAMA_VISION_MODEL || 'openbmb/minicpm-o2.6:latest';
-const WHISPER_BIN = '/opt/homebrew/bin/whisper-cli';
-const WHISPER_MODEL = path.join(process.env.HOME, '.whisper-models/ggml-large-v3-turbo-q5_0.bin');
-const FFMPEG_BIN = '/opt/homebrew/bin/ffmpeg';
+const { findBin } = require('./lib/utils');
+const WHISPER_BIN = findBin('whisper-cli');
+const WHISPER_MODEL = path.join(process.env.HOME || process.env.USERPROFILE || '', '.whisper-models', 'ggml-large-v3-turbo-q5_0.bin');
+const FFMPEG_BIN = findBin('ffmpeg');
 
 const { VAULT_DIR, FEISHU_STATE_FILE: STATE_FILE } = require('./lib/paths');
 const FEISHU_BASE = 'https://open.feishu.cn';
@@ -247,6 +248,14 @@ async function transcribeAudio(audioPath) {
   const txtSidecar = audioPath + '.txt';
   if (fs.existsSync(txtSidecar)) {
     return fs.readFileSync(txtSidecar, 'utf8').trim();
+  }
+  if (!FFMPEG_BIN || !WHISPER_BIN) {
+    throw new Error(
+      'Voice transcription unavailable — ' +
+      (!FFMPEG_BIN ? 'ffmpeg not found in PATH. ' : '') +
+      (!WHISPER_BIN ? 'whisper-cli not found in PATH. ' : '') +
+      'Install ffmpeg and whisper-cpp to enable audio transcription.'
+    );
   }
   if (!fs.existsSync(WHISPER_MODEL)) {
     throw new Error(`whisper 模型缺失: ${WHISPER_MODEL}`);
