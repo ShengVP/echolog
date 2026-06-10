@@ -1,361 +1,455 @@
-#!/usr/bin/env bash
-# echolog —— 私密日记 bot 全局 CLI
-# 通过 `npm link` 安装后，可在任意目录调用：
-#   echolog start       后台启动飞书通道
-#   echolog tg start    后台启动 telegram 通道
-#   echolog stop        停止
-#   echolog status      查看状态
-#   echolog logs        看最近 80 行日志
-#   echolog logs -f     实时跟踪
-#   echolog restart     重启
-#   echolog run         前台运行（调试用）
-set -euo pipefail
+#!/usr/bin/env node
+'use strict';
 
-# 项目根目录（脚本位于 <root>/bin/echolog）
-# 处理三种调用场景：直接路径调用 / PATH 直接命中 / npm link 创建的 symlink
-SCRIPT_PATH="$0"
-while [[ -L "$SCRIPT_PATH" ]]; do
-  TARGET="$(readlink "$SCRIPT_PATH")"
-  case "$TARGET" in
-    /*) SCRIPT_PATH="$TARGET" ;;
-    *)  SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$TARGET" ;;
-  esac
-done
-PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { fork } = require('child_process');
 
-if [[ ! -f "$PROJECT_DIR/feishu.js" ]]; then
-  echo "❌ 找不到项目入口文件，PROJECT_DIR=$PROJECT_DIR"
-  exit 1
-fi
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+const PROJECT_DIR = path.resolve(path.join(__dirname, '..'));
+const STATE_DIR = path.join(os.homedir(), '.echolog');
+const LOG_DIR = path.join(STATE_DIR, 'logs');
 
-CHANNEL="feishu"
-ENTRY="feishu.js"
+// Parse channel sub-command
+const args = process.argv.slice(2);
+let channel = 'feishu';
+let entryFile = 'feishu.js';
 
-# 第一个参数若是 'tg'，切换到 telegram 通道
-if [[ "${1:-}" == "tg" ]]; then
-  CHANNEL="tg"
-  ENTRY="telegram.js"
-  shift
-fi
-
-STATE_DIR="${HOME}/.echolog"
-LOG_DIR="${STATE_DIR}/logs"
-PID_FILE="${STATE_DIR}/${CHANNEL}.pid"
-mkdir -p "$LOG_DIR"
-
-today_log() {
-  echo "${LOG_DIR}/${CHANNEL}-$(date +%Y-%m-%d).log"
+if (args[0] === 'tg') {
+  channel = 'tg';
+  entryFile = 'telegram.js';
+  args.shift();
 }
 
-is_running() {
-  [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+const command = args[0] || 'help';
+const cmdArgs = args.slice(1);
+const PROCESS_NAME = `echolog-${channel}`;
+
+function todayLog() {
+  const yyyymmdd = new Date().toISOString().slice(0, 10);
+  return path.join(LOG_DIR, `${channel}-${yyyymmdd}.log`);
 }
 
-cmd_start() {
-  if is_running; then
-    echo "✅ ${CHANNEL} bot 已经在跑 (pid $(cat "$PID_FILE"))"
-    return 0
-  fi
-  cd "$PROJECT_DIR"
-  local log_file
-  log_file="$(today_log)"
-  nohup node "$ENTRY" >> "$log_file" 2>&1 &
-  echo $! > "$PID_FILE"
-  sleep 1
-  if is_running; then
-    echo "🚀 ${CHANNEL} bot 启动成功 (pid $(cat "$PID_FILE"))"
-    echo "   日志: $log_file"
-    echo "   实时跟踪: echolog ${CHANNEL/feishu/} logs -f"
-  else
-    echo "❌ 启动失败，看日志:"
-    tail -20 "$log_file"
-    rm -f "$PID_FILE"
-    return 1
-  fi
+// Ensure state dirs
+fs.mkdirSync(LOG_DIR, { recursive: true });
+
+// ---------------------------------------------------------------------------
+// pm2 helpers
+// ---------------------------------------------------------------------------
+function pm2Connect() {
+  const pm2 = require('pm2');
+  return new Promise((resolve, reject) => {
+    pm2.connect(err => (err ? reject(err) : resolve(pm2)));
+  });
 }
 
-cmd_stop() {
-  if is_running; then
-    local pid
-    pid="$(cat "$PID_FILE")"
-    kill "$pid"
-    sleep 1
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -9 "$pid" 2>/dev/null || true
-    fi
-    rm -f "$PID_FILE"
-    echo "🛑 ${CHANNEL} bot 已停止 (pid $pid)"
-  else
-    echo "ℹ️  ${CHANNEL} bot 未运行"
-    rm -f "$PID_FILE"
-  fi
+function pm2Describe(pm2, name) {
+  return new Promise((resolve) => {
+    pm2.describe(name, (_err, list) => resolve(list || []));
+  });
 }
 
-cmd_status() {
-  if is_running; then
-    local pid mem
-    pid="$(cat "$PID_FILE")"
-    mem="$(ps -o rss= -p "$pid" 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')"
-    echo "🟢 ${CHANNEL} bot 运行中"
-    echo "   pid: $pid"
-    echo "   mem: $mem"
-    echo "   log: $(today_log)"
-  else
-    echo "🔴 ${CHANNEL} bot 未运行"
-  fi
+function pm2Stop(pm2, name) {
+  return new Promise((resolve) => {
+    pm2.stop(name, () => pm2.delete(name, () => resolve()));
+  });
 }
 
-cmd_logs() {
-  local log_file
-  log_file="$(today_log)"
-  if [[ ! -f "$log_file" ]]; then
-    echo "⚠️  今天没有日志文件: $log_file"
-    return 1
-  fi
-  if [[ "${1:-}" == "-f" || "${1:-}" == "--follow" ]]; then
-    tail -f "$log_file"
-  else
-    tail -80 "$log_file"
-  fi
-}
+// ---------------------------------------------------------------------------
+// Process management commands
+// ---------------------------------------------------------------------------
 
-cmd_restart() {
-  cmd_stop || true
-  sleep 1
-  cmd_start
-}
+async function cmdStart() {
+  let pm2;
+  try { pm2 = await pm2Connect(); }
+  catch { console.error('❌ pm2 daemon not running. Run: npx pm2 resurrect'); process.exit(1); }
 
-cmd_run() {
-  cd "$PROJECT_DIR"
-  exec node "$ENTRY"
-}
+  const list = await pm2Describe(pm2, PROCESS_NAME);
+  const running = list.find(p => p.pm2_env.status === 'online');
+  if (running) {
+    console.log(`✅ ${channel} bot already running (pid ${running.pid})`);
+    pm2.disconnect();
+    return;
+  }
 
-cmd_dir() {
-  echo "$PROJECT_DIR"
-}
+  // If stopped but still in pm2 list, delete first
+  if (list.length) {
+    await new Promise(r => pm2.delete(PROCESS_NAME, r));
+  }
 
-cmd_ticktick_auth() {
-  cd "$PROJECT_DIR"
-  exec node -e "
-    const tt = require('./lib/ticktick');
-    tt.runAuthFlow()
-      .then(() => { console.log('✅ TickTick 授权完成，token 已保存到 .ticktick-state.json'); process.exit(0); })
-      .catch(err => { console.error('❌ 授权失败:', err.message); process.exit(1); });
-  "
-}
-
-cmd_setup_vault() {
-  cd "$PROJECT_DIR"
-  exec node lib/setup-vault.js
-}
-
-cmd_init() {
-  cd "$PROJECT_DIR"
-  exec node lib/init-wizard.js
-}
-
-cmd_doctor() {
-  cd "$PROJECT_DIR"
-  exec node lib/doctor.js
-}
-
-cmd_recover_missing() {
-  cd "$PROJECT_DIR"
-  exec node lib/recover-missing.js
-}
-
-cmd_reindex() {
-  cd "$PROJECT_DIR"
-  exec node -e "
-    const e = require('./lib/embeddings');
-    (async () => {
-      console.log('🔎 全量重建语义索引（model=' + (process.env.OLLAMA_EMBED_MODEL || 'bge-m3') + '）');
-      const r = await e.reindexAll(({ date, indexed, totalSoFar }) => {
-        console.log('  ' + date + ' → ' + indexed + ' chunks (累计 ' + totalSoFar + ')');
+  const logFile = todayLog();
+  pm2.start({
+    script: path.join(PROJECT_DIR, entryFile),
+    name: PROCESS_NAME,
+    output: logFile,
+    error: logFile,
+    merge_logs: true,
+    autorestart: true,
+    max_restarts: 10,
+    restart_delay: 5000,
+  }, (err) => {
+    pm2.disconnect();
+    if (err) { console.error(`❌ Start failed: ${err.message}`); process.exit(1); }
+    // Wait a tick for the process to come up
+    setTimeout(() => {
+      const pm2b = require('pm2');
+      pm2b.connect(() => {
+        pm2b.describe(PROCESS_NAME, (_e, l) => {
+          pm2b.disconnect();
+          const p = (l || [])[0];
+          if (p && p.pm2_env.status === 'online') {
+            console.log(`🚀 ${channel} bot started (pid ${p.pid})`);
+            console.log(`   log: ${logFile}`);
+          } else if (p) {
+            console.log(`⚠️  ${channel} bot status: ${p.pm2_env.status}`);
+            console.log(`   log: ${logFile}`);
+          } else {
+            console.log(`🚀 ${channel} bot started`);
+            console.log(`   log: ${logFile}`);
+          }
+        });
       });
-      console.log('✅ 完成: ' + r.dates + ' 天 / ' + r.total + ' chunks');
-    })().catch(err => { console.error('❌', err.message); process.exit(1); });
-  "
+    }, 1500);
+  });
 }
 
-cmd_prompt() {
-  cd "$PROJECT_DIR"
-  exec node -e "
-    const p = require('./lib/prompts');
-    const cur = p.describePrompt('diary');
-    console.log('当前 prompt 版本（diary）：' + cur.version);
-    console.log('文件：' + cur.file);
-    console.log('文件存在：' + (cur.exists ? '✓' : '✗ 缺失'));
-    console.log('');
-    console.log('已有版本: ' + (cur.available.length ? cur.available.join(', ') : '(无)'));
-    console.log('');
-    console.log('切换到其他版本: 修改 .env 的 DIARY_PROMPT_VERSION + echolog restart');
-    console.log('回滚: 把 DIARY_PROMPT_VERSION 改回旧版本即可（每个 prompt 文件都保留）');
-  "
+async function cmdStop() {
+  let pm2;
+  try { pm2 = await pm2Connect(); }
+  catch { console.log(`ℹ️  ${channel} bot not running (pm2 unreachable)`); process.exit(0); }
+
+  const list = await pm2Describe(pm2, PROCESS_NAME);
+  if (!list.length) {
+    console.log(`ℹ️  ${channel} bot not running`);
+    pm2.disconnect();
+    return;
+  }
+  const pid = list[0].pid;
+  await pm2Stop(pm2, PROCESS_NAME);
+  pm2.disconnect();
+  console.log(`🛑 ${channel} bot stopped (pid ${pid})`);
 }
 
-cmd_self_review() {
-  cd "$PROJECT_DIR"
-  local days="${1:-7}"
-  exec node lib/self-review.js "$days"
+async function cmdRestart() {
+  let pm2;
+  try { pm2 = await pm2Connect(); }
+  catch { console.error('❌ pm2 not running'); process.exit(1); }
+
+  pm2.restart(PROCESS_NAME, (err) => {
+    pm2.disconnect();
+    if (err) { console.error(`❌ Restart failed: ${err.message}`); process.exit(1); }
+    console.log(`🔄 ${channel} bot restarted`);
+    console.log(`   log: ${todayLog()}`);
+  });
 }
 
-cmd_ratings() {
-  cd "$PROJECT_DIR"
-  exec node -e "
-    const r = require('./lib/ratings');
-    const sum = r.summarizeRatings();
-    if (!sum.total) { console.log('暂无评分（在飞书里 /rate <1-5> 累积）'); return; }
-    console.log('共 ' + sum.total + ' 条 · 平均 ' + sum.avg + ' / 5');
-    [5,4,3,2,1].forEach(s => console.log('  ' + s + ' 星：' + (sum.byScore[s] || 0)));
-    console.log('');
-    console.log('最近 10 条:');
-    sum.recent.forEach(r => {
-      console.log('  ' + r.date + ' v' + r.version + ' · ' + r.score + '/5' + (r.comment ? ' — ' + r.comment : ''));
+async function cmdStatus() {
+  let pm2;
+  try { pm2 = await pm2Connect(); }
+  catch { console.log(`🔴 ${channel} bot not running (pm2 unreachable)`); process.exit(0); }
+
+  const list = await pm2Describe(pm2, PROCESS_NAME);
+  pm2.disconnect();
+
+  if (!list.length || list[0].pm2_env.status !== 'online') {
+    console.log(`🔴 ${channel} bot not running`);
+    return;
+  }
+  const p = list[0];
+  const mem = p.monit ? `${(p.monit.memory / 1024 / 1024).toFixed(1)} MB` : 'N/A';
+  const uptime = p.pm2_env.pm_uptime
+    ? `${Math.floor((Date.now() - p.pm2_env.pm_uptime) / 1000)}s`
+    : 'N/A';
+  console.log(`🟢 ${channel} bot running`);
+  console.log(`   pid: ${p.pid}`);
+  console.log(`   mem: ${mem}`);
+  console.log(`   uptime: ${uptime}`);
+  console.log(`   log: ${todayLog()}`);
+}
+
+async function cmdLogs() {
+  const logFile = todayLog();
+  if (cmdArgs[0] === '-f' || cmdArgs[0] === '--follow') {
+    // Use pm2 log bus for cross-platform real-time tail
+    let pm2;
+    try { pm2 = await pm2Connect(); }
+    catch { console.error('❌ pm2 not running'); process.exit(1); }
+
+    pm2.launchBus((busErr, bus) => {
+      if (busErr) { console.error('❌', busErr.message); pm2.disconnect(); process.exit(1); }
+      console.log(`📋 Following ${channel} bot logs (Ctrl+C to stop)...`);
+      bus.on('log:out', packet => {
+        if (packet.process.name === PROCESS_NAME) process.stdout.write(packet.data);
+      });
+      bus.on('log:err', packet => {
+        if (packet.process.name === PROCESS_NAME) process.stderr.write(packet.data);
+      });
     });
-  "
-}
-
-cmd_ingest_test() {
-  cd "$PROJECT_DIR"
-  if [[ -z "${INGEST_TOKEN:-}" ]]; then
-    if [[ -f .env ]]; then
-      set -a; source .env; set +a
-    fi
-  fi
-  if [[ -z "${INGEST_TOKEN:-}" ]]; then
-    echo "❌ .env 里没有 INGEST_TOKEN —— 请先生成（openssl rand -hex 24）并配置"
-    exit 1
-  fi
-  local port="${INGEST_PORT:-8766}"
-  local msg="${1:-从 echolog ingest-test 发的测试消息}"
-  echo "→ POST http://127.0.0.1:${port}/ingest"
-  echo "  text: $msg"
-  # --noproxy '*' 绕开系统代理；不然 HTTP_PROXY 会把 localhost 也转给代理 → 502
-  curl -sS --noproxy '*' -X POST "http://127.0.0.1:${port}/ingest" \
-    -H "X-Echolog-Token: $INGEST_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"text\":\"$msg\",\"source\":\"cli-test\"}" || {
-      echo ""
-      echo "❌ 连不上 —— bot 没在跑或者 INGEST_TOKEN 没生效，echolog restart 再试"
-      exit 1
-    }
-  echo ""
-  echo "✅ 已发送，看今天的 raw_logs:"
-  echo "   tail -5 \"\$(echolog dir)/Daily_Vault/\$(date +%Y-%m-%d)/01_raw_logs.md\""
-}
-
-cmd_recall() {
-  cd "$PROJECT_DIR"
-  if [[ -z "${1:-}" ]]; then
-    echo "用法：echolog recall <主题> [N]"; exit 1
-  fi
-  local query="$1"; shift
-  local topk="${1:-6}"
-  exec node -e "
-    const e = require('./lib/embeddings');
-    (async () => {
-      const hits = await e.query(process.argv[1], { topK: parseInt(process.argv[2], 10) || 6 });
-      if (!hits.length) { console.log('🤷 无匹配（先跑 reindex）'); return; }
-      for (const h of hits) {
-        console.log('📅 ' + h.date + ' ' + h.time + '  · ' + (h.score * 100).toFixed(0) + '%');
-        console.log('  ' + h.text.replace(/\\n/g, '\\n  '));
-        console.log('');
+  } else {
+    if (!fs.existsSync(logFile)) {
+      console.log(`No log file today: ${logFile}`);
+      // Fallback: try pm2 describe for log path
+      let pm2;
+      try { pm2 = await pm2Connect(); }
+      catch { return; }
+      const list = await pm2Describe(pm2, PROCESS_NAME);
+      pm2.disconnect();
+      if (list.length) {
+        const lp = list[0].pm2_env.pm_out_log_path;
+        if (lp && fs.existsSync(lp)) {
+          const content = fs.readFileSync(lp, 'utf8');
+          const lines = content.split('\n');
+          process.stdout.write(lines.slice(-80).join('\n'));
+          return;
+        }
       }
-    })().catch(err => { console.error('❌', err.message); process.exit(1); });
-  " "$query" "$topk"
+      return;
+    }
+    const content = fs.readFileSync(logFile, 'utf8');
+    const lines = content.split('\n');
+    process.stdout.write(lines.slice(-80).join('\n'));
+  }
 }
 
-cmd_ticktick_status() {
-  cd "$PROJECT_DIR"
-  exec node -e "
-    const tt = require('./lib/ticktick');
-    if (!tt.isAuthed()) { console.log('🔴 TickTick 未授权 (运行 echolog ticktick-auth)'); process.exit(1); }
-    const s = tt.loadState();
-    const expiresIn = s.tokens.expires_at - Date.now();
-    const days = Math.floor(expiresIn / 86400000);
-    console.log('🟢 TickTick 已授权');
-    console.log('  obtained: ' + s.tokens.obtained_at);
-    console.log('  expires:  ~' + days + ' 天后');
-    console.log('  scope:    ' + s.tokens.scope);
-    const synced = s.synced || {};
-    const totalSynced = Object.values(synced).reduce((sum, arr) => sum + arr.length, 0);
-    console.log('  synced:   ' + totalSynced + ' 条 (across ' + Object.keys(synced).length + ' 天)');
-  "
+function cmdRun() {
+  // Foreground mode — no pm2, just fork, inherit stdio
+  const child = fork(path.join(PROJECT_DIR, entryFile), [], {
+    cwd: PROJECT_DIR,
+    stdio: 'inherit',
+  });
+  child.on('exit', code => process.exit(code || 0));
 }
 
-cmd_help() {
-  cat <<EOF
-echolog — 私密日记 bot CLI
+// ---------------------------------------------------------------------------
+// Utility commands — short inline operations
+// ---------------------------------------------------------------------------
 
-用法：
-  echolog init               🪄 首跑配置向导（依赖检测 / LLM provider / 飞书凭证 / 个人身份）
-  echolog start              启动飞书通道 (后台)
-  echolog stop               停止
-  echolog restart            重启
-  echolog status             查看状态 (pid/mem/log)
-  echolog logs               看最近 80 行日志
-  echolog logs -f            实时跟踪日志
-  echolog run                前台运行 (调试)
-  echolog dir                打印项目目录路径
-
-  echolog tg <command>       同样命令但作用于 Telegram 通道
-
-滴答清单（一次性授权，之后自动用）：
-  echolog ticktick-auth      浏览器授权 TickTick / 滴答清单
-  echolog ticktick-status    看 token 有效期 + 已同步任务数
-
-Obsidian Vault 脚手架（一次性，幂等可重跑）：
-  echolog setup-vault        建目录骨架 + 铺种子 MOCs/Templates/Dataview
-                                + 自动下载 Dataview/Templater/Calendar 等插件
-
-跨日记忆 / 语义索引：
-  echolog reindex            全量重建 Daily_Vault 的向量索引（首次 / 切模型时）
-  echolog recall <主题> [N]  跨日语义检索 top-N（飞书内用 /recall 同效果）
-
-外部接入（Tasker / HTTP Shortcuts / 小米手机）：
-  echolog ingest-test [文本]  自测 HTTP /ingest 端点（看 docs/XIAOMI_INTEGRATION.md）
-
-反馈环：
-  echolog ratings            看 /rate 打分统计
-  echolog self-review [N]    bot 自审过去 N 天 diary（默认 7），找出真洞察 vs 水分句
-
-Prompt 版本管理：
-  echolog prompt             看当前 diary prompt 版本 + 已有版本列表
-                                切换：改 .env 的 DIARY_PROMPT_VERSION + restart
-
-健康检查：
-  echolog doctor             全面体检：进程 / 飞书 token / 漏拉消息扫描 /
-                                滴答 token / whisper / ollama / vault / 索引
-  echolog recover-missing    重置水位线主动恢复 30 天内漏拉的消息
-
-文件位置：
-  pid:     ${STATE_DIR}/<channel>.pid
-  logs:    ${LOG_DIR}/<channel>-YYYY-MM-DD.log
-  vault:   ${PROJECT_DIR}/Daily_Vault/
-EOF
+function cmdDir() {
+  console.log(PROJECT_DIR);
 }
 
-case "${1:-help}" in
-  start) cmd_start ;;
-  stop) cmd_stop ;;
-  restart) cmd_restart ;;
-  status) cmd_status ;;
-  logs) shift; cmd_logs "${1:-}" ;;
-  run) cmd_run ;;
-  dir) cmd_dir ;;
-  ticktick-auth) cmd_ticktick_auth ;;
-  ticktick-status) cmd_ticktick_status ;;
-  setup-vault) cmd_setup_vault ;;
-  init) cmd_init ;;
-  doctor) cmd_doctor ;;
-  recover-missing) cmd_recover_missing ;;
-  reindex) cmd_reindex ;;
-  recall) shift; cmd_recall "$@" ;;
-  ingest-test) shift; cmd_ingest_test "$@" ;;
-  self-review) shift; cmd_self_review "$@" ;;
-  ratings) cmd_ratings ;;
-  prompt) cmd_prompt ;;
-  -h|--help|help) cmd_help ;;
-  *) echo "未知命令: $1"; echo; cmd_help; exit 1 ;;
-esac
+function cmdHelp() {
+  const s = STATE_DIR;
+  console.log(`echolog — private journal bot CLI
+
+Usage:
+  echolog init               Setup wizard (deps / LLM / Feishu / identity)
+  echolog start              Start Feishu channel (daemon via pm2)
+  echolog stop               Stop
+  echolog restart            Restart
+  echolog status             Status (pid / mem / uptime)
+  echolog logs               Last 80 log lines
+  echolog logs -f            Follow logs in real-time
+  echolog run                Foreground (debug)
+  echolog dir                Print project directory path
+
+  echolog tg <command>       Same commands for Telegram channel
+
+TickTick:
+  echolog ticktick-auth      Browser OAuth authorize TickTick
+  echolog ticktick-status    Token validity + synced task count
+
+Vault:
+  echolog setup-vault        Scaffold Obsidian vault skeleton
+
+Semantic index:
+  echolog reindex            Full rebuild of Daily_Vault vector index
+  echolog recall <主题> [N]  Cross-date semantic search top-N
+
+External ingest:
+  echolog ingest-test [text] Test HTTP /ingest endpoint
+
+Feedback:
+  echolog ratings            /rate score summary
+  echolog self-review [N]    Bot self-review last N days diaries (default 7)
+
+Prompt version management:
+  echolog prompt             Current diary prompt version + available versions
+
+Health:
+  echolog doctor             Full health check
+  echolog recover-missing    Reset watermarks, recover missed messages (30 days)
+
+File locations:
+  state:   ${s}/
+  logs:    ${LOG_DIR}/
+  vault:   ${PROJECT_DIR}/Daily_Vault/`);
+}
+
+// ---------------------------------------------------------------------------
+// Utility commands — fork standalone scripts
+// ---------------------------------------------------------------------------
+
+function forkScript(scriptPath, extraArgs = []) {
+  const child = fork(scriptPath, extraArgs, { cwd: PROJECT_DIR, stdio: 'inherit' });
+  child.on('exit', code => process.exit(code || 0));
+}
+
+function cmdInit()        { forkScript(path.join(PROJECT_DIR, 'lib', 'init-wizard.js')); }
+function cmdDoctor()      { forkScript(path.join(PROJECT_DIR, 'lib', 'doctor.js')); }
+function cmdSetupVault()  { forkScript(path.join(PROJECT_DIR, 'lib', 'setup-vault.js')); }
+function cmdSelfReview()  { forkScript(path.join(PROJECT_DIR, 'lib', 'self-review.js'), cmdArgs); }
+function cmdRecoverMissing() { forkScript(path.join(PROJECT_DIR, 'lib', 'recover-missing.js')); }
+
+// ---------------------------------------------------------------------------
+// Utility commands — require (run in this process)
+// ---------------------------------------------------------------------------
+
+function cmdReindex() {
+  const e = require(path.join(PROJECT_DIR, 'lib', 'embeddings'));
+  console.log(`🔎 Rebuilding semantic index (model=${process.env.OLLAMA_EMBED_MODEL || 'bge-m3'})`);
+  e.reindexAll(({ date, indexed, totalSoFar }) => {
+    console.log(`  ${date} → ${indexed} chunks (total ${totalSoFar})`);
+  }).then(r => {
+    console.log(`✅ Done: ${r.dates} days / ${r.total} chunks`);
+  }).catch(err => { console.error('❌', err.message); process.exit(1); });
+}
+
+function cmdRecall() {
+  if (!cmdArgs[0]) { console.log('Usage: echolog recall <主题> [N]'); process.exit(1); }
+  const query = cmdArgs[0];
+  const topK = parseInt(cmdArgs[1], 10) || 6;
+  const e = require(path.join(PROJECT_DIR, 'lib', 'embeddings'));
+  e.query(query, { topK }).then(hits => {
+    if (!hits.length) { console.log('🤷 No matches (run reindex first)'); return; }
+    for (const h of hits) {
+      console.log(`📅 ${h.date} ${h.time}  · ${(h.score * 100).toFixed(0)}%`);
+      console.log(`  ${h.text.replace(/\n/g, '\n  ')}`);
+      console.log('');
+    }
+  }).catch(err => { console.error('❌', err.message); process.exit(1); });
+}
+
+function cmdRatings() {
+  const r = require(path.join(PROJECT_DIR, 'lib', 'ratings'));
+  const sum = r.summarizeRatings();
+  if (!sum.total) { console.log('No ratings yet (use /rate 1-5 in Feishu)'); return; }
+  console.log(`Total ${sum.total} · Average ${sum.avg} / 5`);
+  [5, 4, 3, 2, 1].forEach(s => { if (sum.byScore[s]) console.log(`  ${s}★: ${sum.byScore[s]}`); });
+  console.log('');
+  console.log('Recent 10:');
+  sum.recent.forEach(entry => {
+    console.log(`  ${entry.date} v${entry.version} · ${entry.score}/5${entry.comment ? ' — ' + entry.comment : ''}`);
+  });
+}
+
+function cmdPrompt() {
+  const p = require(path.join(PROJECT_DIR, 'lib', 'prompts'));
+  const cur = p.describePrompt('diary');
+  console.log(`Current prompt (diary): ${cur.version}`);
+  console.log(`File: ${cur.file}`);
+  console.log(`Exists: ${cur.exists ? '✓' : '✗ missing'}`);
+  console.log('');
+  console.log(`Available: ${cur.available.length ? cur.available.join(', ') : '(none)'}`);
+  console.log('');
+  console.log('Switch: set DIARY_PROMPT_VERSION in .env + echolog restart');
+  console.log('Rollback: set DIARY_PROMPT_VERSION back — each version file is preserved');
+}
+
+function cmdTickTickStatus() {
+  const tt = require(path.join(PROJECT_DIR, 'lib', 'ticktick'));
+  if (!tt.isAuthed()) { console.log('🔴 TickTick not authorized (run echolog ticktick-auth)'); process.exit(1); }
+  const s = tt.loadState();
+  const expiresIn = s.tokens.expires_at - Date.now();
+  const days = Math.floor(expiresIn / 86400000);
+  console.log('🟢 TickTick authorized');
+  console.log(`  obtained: ${s.tokens.obtained_at}`);
+  console.log(`  expires:  ~${days} days`);
+  console.log(`  scope:    ${s.tokens.scope}`);
+  const synced = s.synced || {};
+  const totalSynced = Object.values(synced).reduce((sum, arr) => sum + arr.length, 0);
+  console.log(`  synced:   ${totalSynced} items (${Object.keys(synced).length} days)`);
+}
+
+function cmdTickTickAuth() {
+  const tt = require(path.join(PROJECT_DIR, 'lib', 'ticktick'));
+  tt.runAuthFlow()
+    .then(() => { console.log('✅ TickTick authorized, token saved to .ticktick-state.json'); process.exit(0); })
+    .catch(err => { console.error('❌ Authorization failed:', err.message); process.exit(1); });
+}
+
+function cmdIngestTest() {
+  // Load INGEST_TOKEN from .env
+  const envFile = require(path.join(PROJECT_DIR, 'lib', 'paths')).ENV_FILE;
+  const dotenv = require('dotenv');
+  dotenv.config({ path: envFile });
+  const token = process.env.INGEST_TOKEN;
+  if (!token) {
+    console.error('❌ INGEST_TOKEN not set in .env (generate: openssl rand -hex 24)');
+    process.exit(1);
+  }
+  const port = process.env.INGEST_PORT || '8766';
+  const msg = cmdArgs[0] || 'Test message from echolog ingest-test';
+  const http = require('http');
+  const data = JSON.stringify({ text: msg, source: 'cli-test' });
+  const req = http.request({
+    hostname: '127.0.0.1', port: parseInt(port, 10),
+    path: '/ingest', method: 'POST',
+    headers: {
+      'X-Echolog-Token': token,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(data),
+    },
+    family: 4,
+  }, res => {
+    let body = '';
+    res.on('data', c => body += c);
+    res.on('end', () => {
+      if (res.statusCode === 200) {
+        console.log('✅ Sent! Check today raw_logs:');
+        const yyyymmdd = new Date().toISOString().slice(0, 10);
+        console.log(`   tail -5 "${path.join(PROJECT_DIR, 'Daily_Vault', yyyymmdd, '01_raw_logs.md')}"`);
+      } else {
+        console.error(`❌ Server returned ${res.statusCode}: ${body}`);
+      }
+    });
+  });
+  req.on('error', () => {
+    console.error('❌ Cannot connect — bot not running or INGEST_TOKEN not set. echolog restart and retry.');
+    process.exit(1);
+  });
+  req.write(data);
+  req.end();
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+const ROUTER = {
+  start:              cmdStart,
+  stop:               cmdStop,
+  restart:            cmdRestart,
+  status:             cmdStatus,
+  logs:               cmdLogs,
+  run:                cmdRun,
+  dir:                cmdDir,
+  'ticktick-auth':    cmdTickTickAuth,
+  'ticktick-status':  cmdTickTickStatus,
+  'setup-vault':      cmdSetupVault,
+  init:               cmdInit,
+  doctor:             cmdDoctor,
+  'recover-missing':  cmdRecoverMissing,
+  reindex:            cmdReindex,
+  recall:             cmdRecall,
+  'ingest-test':      cmdIngestTest,
+  'self-review':      cmdSelfReview,
+  ratings:            cmdRatings,
+  prompt:             cmdPrompt,
+  '-h':               cmdHelp,
+  '--help':           cmdHelp,
+  help:               cmdHelp,
+};
+
+const handler = ROUTER[command];
+if (!handler) {
+  console.log(`Unknown command: ${command}`);
+  console.log('');
+  cmdHelp();
+  process.exit(1);
+}
+
+handler();
