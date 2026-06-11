@@ -74,11 +74,14 @@ cd echolog
 bash scripts/setup.sh      # one command: checks Node, npm install, installs the `echolog` CLI, prepares .env, runs a doctor check
 ```
 
-<details><summary>…or do it manually</summary>
+> **Windows users**: the bash setup script won't run natively. Do the manual steps below instead.
+> `npm link` requires an admin terminal on Windows. Or skip it entirely and use `node bin/echolog <command>`.
+
+<details><summary>…or do it manually (also: Windows)</summary>
 
 ```bash
 npm install
-npm link            # installs the `echolog` CLI (no sudo needed with a user node prefix)
+npm link            # installs the `echolog` CLI (macOS/Linux: no sudo needed with a user node prefix; Windows: admin terminal)
 cp .env.example .env
 ```
 </details>
@@ -119,6 +122,9 @@ echolog start        # run the Feishu channel in the background
 echolog logs -f      # follow logs
 echolog tg start     # (optional) Telegram channel
 ```
+
+> **Windows**: if you skipped `npm link`, use `node bin/echolog start` (and likewise for
+> `stop`, `restart`, `status`, `logs`). See [`docs/FEISHU_SETUP.md`](docs/FEISHU_SETUP.md) section 6.
 
 DM your bot a few messages, then send `/diary`. The first p2p message pairs the
 bot to you; everyone else is silently ignored.
