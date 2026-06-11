@@ -81,7 +81,7 @@ echolog logs -f            # 全局 CLI
 node bin/echolog logs -f   # 直接跑
 ```
 
-> **Windows 用户**：`node bin/echolog` 替代了旧的 bash 版 CLI，底层用 pm2 管理后台进程，不依赖 Git Bash。
+> **Windows 用户**：`node bin/echolog` 替代了旧的 bash 版 CLI，底层用 Node.js 原生 child_process 管理后台进程，不依赖 Git Bash。
 > 想把 `echolog` 注册为全局命令：`npm link`（Windows 需要在管理员终端里跑）。
 
 在飞书里**私聊机器人发任意一条消息** → 它把你锁为唯一主人（之后别人发的一律忽略），

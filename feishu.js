@@ -266,7 +266,7 @@ async function transcribeAudio(audioPath) {
     '-y', '-i', audioPath,
     '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le',
     wavPath,
-  ], { timeout: 60000 });
+  ], { timeout: 60000, windowsHide: true });
 
   const { stdout } = await execFileAsync(WHISPER_BIN, [
     '-m', WHISPER_MODEL,
@@ -275,7 +275,7 @@ async function transcribeAudio(audioPath) {
     '-nt',          // no timestamps
     '-np',          // no progress
     '-otxt', 'false',
-  ], { timeout: 180000, maxBuffer: 10 * 1024 * 1024 });
+  ], { timeout: 180000, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
 
   fs.unlinkSync(wavPath); // 清理中间 wav
   const transcript = stdout.replace(/\s+/g, ' ').trim();

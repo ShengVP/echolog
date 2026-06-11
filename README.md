@@ -64,7 +64,7 @@ you ─DM─▶  Feishu / Telegram bot  ──▶  Daily_Vault/2026-06-09/
 | **Node.js ≥ 22** | runtime (undici 8 requires Node 22) | https://nodejs.org |
 | **An LLM** | writes the diaries | local [Ollama](https://ollama.com), **or** a cloud API key (see step 3) |
 | A **Feishu** app | the chat channel | https://open.feishu.cn (or a Telegram bot token) |
-| *(optional)* `whisper-cpp` + `ffmpeg` | voice transcription | `brew install whisper-cpp ffmpeg` |
+| *(optional)* `whisper-cpp` + `ffmpeg` | voice transcription | macOS: `brew install whisper-cpp ffmpeg`; Windows: 暂不支持语音转录 |
 
 ### 2. Install
 
